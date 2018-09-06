@@ -9,7 +9,11 @@ import vk
 class Event:
     __slots__ = ('type', 'object', 'group_id', 'time_created')
 
-    def __init__(self, json: dict = None):
+    def __init__(self, json = None):
+        """
+
+        :type json: dict    
+        """
         if json:
             self.time_created = datetime.now()  # type: datetime
             self.type = json.get('type')  # type: str
@@ -26,31 +30,51 @@ class Rule:
     def __init__(self):
         pass
 
-    def check(self, event: Event):
+    def check(self, event):
+        """
+
+        :type event: Event
+        """
         raise NotImplementedError("check() is not implemented in {0}" % self.__class__.__name__)
 
 
 class TypeRule(Rule):
     # noinspection PyMissingConstructor
-    def __init__(self, event_type: str, func: Callable = None):
+    def __init__(self, event_type = "", func = None):
+        """
+
+        :type event_type: str
+        :type func: Callable
+        """
         self.type = event_type
         self.function = func
 
-    def check(self, event: Event):
-        if self.type == event.type:
-            if self.function:
-                return self.function(event)
-            else:
-                return True
-        return False
+    def check(self, event):
+        """
+
+        :type event: Event
+        """
+        if self.function:
+            return self.function(event)
+        else:
+            return self.type == event.type
 
 
 class MessageRule(Rule):
     __slots__ = ('attachment_types', 'payload', 'func_text', 'func_msg', 'regexp', 'commands')
 
     # noinspection PyMissingConstructor
-    def __init__(self, attachment_types: list = None, payload: dict = None, func_text: Callable = None,
-                 func_msg: Callable = None, regexp: str = None, commands: list = None):
+    def __init__(self, attachment_types = None, payload = None, func_text = None,
+                 func_msg = None, regexp = None, commands = None):
+        """
+
+        :type attachment_types: List[str]
+        :type payload: dict
+        :type func_text: Callable
+        :type func_msg: Callable
+        :type regexp: str
+        :type commands: List[str]
+        """
         self.attachment_types = attachment_types
         self.payload = payload
         self.func_text = func_text
@@ -58,7 +82,11 @@ class MessageRule(Rule):
         self.regexp = regexp
         self.commands = commands
 
-    def check(self, event: Event):
+    def check(self, event):
+        """
+
+        :type event: Event
+        """
         if event.type == 'message_new':
             msg = event.object
             check = False
@@ -84,23 +112,39 @@ class MessageRule(Rule):
 class Handler:
     __slots__ = ('func', 'rule')
 
-    def __init__(self, func, rule: Rule):
+    def __init__(self, func, rule):
+        """
+
+        :type func: Callable
+        :type rule: Rule
+        """
         self.func = func
         self.rule = rule
 
-    def handle(self, ev: Event):
-        if self.rule.check(ev):
-            self.func(ev)
+    def handle(self, event):
+        """
+
+        :type event: Event
+        """
+        if self.rule.check(event):
+            self.func(event)
             return True
         else:
             return False
 
 
 class VKBot:
-    _handlers = []  # type: List[Handler]
 
-    def __init__(self, api: vk.API, group_id: int, v: str = '5.80',
-                 logger: logging.Logger = logging.getLogger("VKBot")):
+    def __init__(self, api, group_id, v = '5.80',
+                 logger = logging.getLogger("VKPy")):
+        """
+
+        :type api: vk.API
+        :type group_id: int
+        :type v: str
+        :type logger: logging.Logger
+        """
+        self._handlers = []  # type: List[Handler]
         self.v = v
         self.api = api
         self.logger = logger
@@ -113,24 +157,38 @@ class VKBot:
 
         return handle_message_decorator
 
-    def handle_event(self, rule: Rule = None, event_type: str = None):
+    def handle_event(self, rule = None, **type_rule_args):
+        """
+
+        :type rule: Rule
+        """
         def handle_message_decorator(func):
-            if rule:
+            if func:
+                self._handlers.append(Handler(func, TypeRule(**type_rule_args)))
+            elif rule:
                 self._handlers.append(Handler(func, rule))
             else:
-                self._handlers.append(Handler(func, TypeRule(event_type)))
+                self._handlers.append(Handler(func, TypeRule(**type_rule_args)))
             return func
 
         return handle_message_decorator
 
-    def run(self, threaded=False, reload=False):
+    def run(self, threaded: bool = False, reload: bool = False, timeout: bool = 25):
+        """
+
+        :type threaded: bool
+        :type reload: bool
+        :type timeout: bool
+        """
         logger = self.logger
         while True:
             logger.info("Getting new longpoll server")
             s = self.api.groups.getLongPollServer(group_id=self.group_id)
             logger.debug("getLongPollServer returned " + repr(s))
             ts = s['ts']
-            url = "{server}?act=a_check&key={key}&ts={{ts}}&wait=25".format(server=s['server'], key=s['key'])
+            url = "{server}?act=a_check&key={key}&ts={{ts}}&wait={timeout}".format(server=s['server'], key=s['key'],
+                                                                                   timeout=timeout)
+
             while True:
                 logger.debug("Getting updates")
                 rq = requests.get(url.format(ts=ts)).json()
@@ -144,8 +202,7 @@ class VKBot:
                 updates = rq.get('updates', [])
                 logger.debug("Got {0} new updates".format(len(updates)))
 
-                from itertools import count
-                for i, event in zip(count(), updates):
+                for i, event in enumerate(updates):
                     logger.debug("Processing update {0}: {1}".format(i, event))
                     ev = Event(event)
                     for handler in self._handlers:
